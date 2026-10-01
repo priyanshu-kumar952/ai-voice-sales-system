@@ -1,0 +1,1228 @@
+{
+  "name": "Voice AI - Post-Call Lead Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-call-ended",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "afe09bc6-504b-400f-9748-7c64f8846de8",
+      "name": "Call Ended Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ],
+      "webhookId": "509b0b5c-6ac1-43b2-891f-a8f28b2f50ac",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UGaGkKpwTPQ2khxd",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "event",
+              "name": "event",
+              "type": "string",
+              "value": "={{ $json.body.event ?? \"call_ended\" }}"
+            },
+            {
+              "id": "call_id",
+              "name": "call_id",
+              "type": "string",
+              "value": "={{ String($json.body[\"call\"]?.call_id ?? $json.body[\"call_id\"] ?? \"\").trim() }}"
+            },
+            {
+              "id": "phone_number",
+              "name": "phone_number",
+              "type": "string",
+              "value": "={{ String($json.body[\"phone_number\"] ?? ($json.body[\"call\"]?.direction === \"outbound\" ? $json.body[\"call\"]?.to_number : $json.body[\"call\"]?.from_number) ?? \"\").trim() }}"
+            },
+            {
+              "id": "transcript",
+              "name": "transcript",
+              "type": "string",
+              "value": "={{ String($json.body[\"call\"]?.transcript ?? $json.body[\"transcript\"] ?? \"\").trim() }}"
+            },
+            {
+              "id": "started_at",
+              "name": "started_at",
+              "type": "string",
+              "value": "={{ $json.body[\"started_at\"] ?? ($json.body[\"call\"]?.start_timestamp ? new Date($json.body[\"call\"].start_timestamp).toISOString() : \"\") }}"
+            },
+            {
+              "id": "ended_at",
+              "name": "ended_at",
+              "type": "string",
+              "value": "={{ $json.body[\"ended_at\"] ?? ($json.body[\"call\"]?.end_timestamp ? new Date($json.body[\"call\"].end_timestamp).toISOString() : \"\") }}"
+            },
+            {
+              "id": "duration_seconds",
+              "name": "duration_seconds",
+              "type": "number",
+              "value": "={{ $json.body[\"duration_seconds\"] ?? (($json.body[\"call\"]?.start_timestamp && $json.body[\"call\"]?.end_timestamp) ? Math.round(($json.body[\"call\"].end_timestamp - $json.body[\"call\"].start_timestamp) / 1000) : null) }}"
+            },
+            {
+              "id": "received_at",
+              "name": "received_at",
+              "type": "string",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {
+          "ignoreConversionErrors": true
+        }
+      },
+      "id": "c1c4a373-b095-4211-a80d-818d7df959d1",
+      "name": "Prepare Call Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-call-id",
+              "leftValue": "={{ $json.call_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "has-transcript",
+              "leftValue": "={{ $json.transcript }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7b1445f6-4f4f-4a65-8173-df0e57d48166",
+      "name": "Has Call ID and Transcript?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: \"accepted\", call_id: $json.call_id }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "17bb6ae9-90f3-4bda-b819-0e6caddeb6fe",
+      "name": "Respond Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.4-mini",
+          "cachedResultName": "GPT-5.4-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=Caller ID (from telephony, for reference only): {{ $(\"Prepare Call Data\").item.json.phone_number || \"unknown\" }}\n\nCall transcript:\n\"\"\"\n{{ $(\"Prepare Call Data\").item.json.transcript }}\n\"\"\""
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "instructions": "You extract real-estate sales lead information from a phone call transcript between an AI sales agent and a customer.\nRules:\n- Use ONLY information explicitly stated by the CUSTOMER in the transcript. Never guess, infer, or invent values.\n- If a field was not clearly provided, return null for it.\n- name: the customer's own name as they stated it (not the agent's name). null if not stated.\n- phone: a phone number the customer explicitly spoke in the call, digits only with country code if stated. null if none was spoken (the caller ID is handled separately).\n- budget_text: the exact budget phrase the customer used (e.g. \"around 60 lakh\"). null if no budget was mentioned.\n- budget: that budget converted to a whole number of Indian Rupees (1 lakh = 100000, 1 crore = 10000000). If the customer gave a range, use the upper limit. null if no budget was mentioned.\n- preferred_location: the city/area the customer wants to buy in. null if not stated.\n- property_type: a short description of the property they want, combining configuration and type when stated (e.g. \"2 BHK apartment\", \"3 BHK villa\", \"plot\"). Only add \"apartment\" when they said flat/apartment or only a BHK count. null if not stated.",
+          "maxTokens": 2000,
+          "reasoning": {
+            "reasoningOptions": {
+              "effort": "low",
+              "summary": "none"
+            }
+          },
+          "store": false,
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "name": "lead_extraction",
+              "schema": "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"name\",\"phone\",\"budget\",\"budget_text\",\"preferred_location\",\"property_type\"],\"properties\":{\"name\":{\"type\":[\"string\",\"null\"],\"description\":\"Customer name as stated, or null\"},\"phone\":{\"type\":[\"string\",\"null\"],\"description\":\"Phone number spoken by the customer, or null\"},\"budget\":{\"type\":[\"integer\",\"null\"],\"description\":\"Budget in INR as a whole number, or null\"},\"budget_text\":{\"type\":[\"string\",\"null\"],\"description\":\"Verbatim budget phrase, or null\"},\"preferred_location\":{\"type\":[\"string\",\"null\"],\"description\":\"Preferred city/area, or null\"},\"property_type\":{\"type\":[\"string\",\"null\"],\"description\":\"Desired property type, or null\"}}}",
+              "description": "Structured lead details extracted from a sales call transcript",
+              "strict": true
+            }
+          }
+        }
+      },
+      "id": "b29d4e90-089c-4cfe-89ca-91156fd54a63",
+      "name": "Extract Lead Info",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        752,
+        384
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "errorMessage": "=Lead extraction failed for call_id {{ $(\"Prepare Call Data\").item.json.call_id }}: {{ $json[\"extraction\"] ? $json[\"extraction\"].errors.join(\"; \") : ($json[\"error\"]?.message ?? $json[\"error\"] ?? \"OpenAI request failed\") }}"
+      },
+      "id": "5a4e8049-93f2-4e0c-8804-01a8b4edefcd",
+      "name": "Lead Extraction Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: \"rejected\", reason: !$json.call_id ? \"missing call_id\" : \"missing transcript\", call_id: $json.call_id || null }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "4527f13e-7ae8-4657-bb63-0829549b8f17",
+      "name": "Respond Invalid Payload",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst call = $('Prepare Call Data').item.json;\nconst errors = [];\nconst warnings = [];\n\n// 1. Read the model output (structured output is normally already an object)\nlet raw = null;\ntry {\n  raw = $json.output[0].content[0].text;\n} catch (e) {\n  raw = null;\n}\nlet parsed = raw;\nif (typeof raw === 'string') {\n  try {\n    parsed = JSON.parse(raw);\n  } catch (e) {\n    parsed = null;\n    errors.push('LLM output is not valid JSON');\n  }\n}\nif (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {\n  if (errors.length === 0) errors.push('LLM output missing or not a JSON object');\n  parsed = null;\n}\nconst p = parsed || {};\nconst REQUIRED_KEYS = ['name', 'phone', 'budget', 'budget_text', 'preferred_location', 'property_type'];\nif (parsed) {\n  const missingKeys = REQUIRED_KEYS.filter((k) => !(k in parsed));\n  if (missingKeys.length > 0) {\n    errors.push('LLM output does not match lead schema (missing keys: ' + missingKeys.join(', ') + ')');\n  }\n}\n\n// 2. Helpers\nconst EMPTY = ['null', 'none', 'n/a', 'na', 'unknown', 'not provided', 'not mentioned', 'not stated', '-'];\nfunction cleanText(v, maxLen) {\n  if (v === null || v === undefined) return null;\n  const s = String(v).replace(/\\s+/g, ' ').trim();\n  if (!s) return null;\n  if (EMPTY.includes(s.toLowerCase())) return null;\n  return s.slice(0, maxLen || 200);\n}\nfunction normalizePhone(v) {\n  if (v === null || v === undefined) return null;\n  const str = String(v).trim();\n  if (!str) return null;\n  const hasPlus = str.startsWith('+');\n  const d = str.replace(/\\D/g, '');\n  if (!d) return null;\n  if (d.length === 10 && /^[6-9]/.test(d)) return '+91' + d;\n  if (d.length === 11 && d.startsWith('0')) return '+91' + d.slice(1);\n  if (d.length === 12 && d.startsWith('91')) return '+' + d;\n  if (hasPlus && d.length >= 8 && d.length <= 15) return '+' + d;\n  return null;\n}\nfunction parseBudget(v, text) {\n  if (typeof v === 'number' && Number.isFinite(v) && v > 0) return Math.round(v);\n  const src = (v !== null && v !== undefined && v !== '') ? String(v) : (text || '');\n  const s = src.toLowerCase().replace(/,/g, '');\n  const m = s.match(/(\\d+(?:\\.\\d+)?)/);\n  if (!m) return null;\n  let n = parseFloat(m[1]);\n  if (/crore|\\bcr\\b/.test(s)) n = n * 10000000;\n  else if (/lakh|lac|\\bl\\b/.test(s)) n = n * 100000;\n  else if (/million/.test(s)) n = n * 1000000;\n  else if (/thousand|\\bk\\b/.test(s)) n = n * 1000;\n  return n > 0 ? Math.round(n) : null;\n}\n\n// 3. Normalize fields\nconst name = cleanText(p.name, 120);\nconst preferred_location = cleanText(p.preferred_location, 120);\nconst property_type = cleanText(p.property_type, 120);\nconst budget_text = cleanText(p.budget_text, 120);\n\nlet budget = parsed ? parseBudget(p.budget, budget_text) : null;\nif (budget !== null && (budget < 100000 || budget > 10000000000)) {\n  warnings.push('budget ' + budget + ' outside plausible range (1 lakh to 1000 crore), set to null');\n  budget = null;\n}\n\n// Caller ID from telephony is authoritative; fall back to a number spoken in the call\nconst callerPhone = normalizePhone(call.phone_number);\nconst spokenPhone = normalizePhone(p.phone);\nlet phone = null;\nlet phone_source = null;\nif (callerPhone) { phone = callerPhone; phone_source = 'caller_id'; }\nelse if (spokenPhone) { phone = spokenPhone; phone_source = 'transcript'; }\nif (callerPhone && spokenPhone && callerPhone !== spokenPhone) {\n  warnings.push('customer spoke a different number (' + spokenPhone + ') than caller ID');\n}\nif (!phone) errors.push('no valid phone number (caller ID missing/invalid and none spoken)');\nif (!name) warnings.push('customer name not provided');\n\nreturn {\n  json: {\n    call_id: call.call_id,\n    lead: { name, phone, budget, preferred_location, property_type },\n    extraction: {\n      is_valid: errors.length === 0,\n      can_create_new_lead: errors.length === 0 && name !== null,\n      errors,\n      warnings,\n      phone_source,\n      alternate_phone: (spokenPhone && spokenPhone !== phone) ? spokenPhone : null,\n      budget_text,\n      llm_raw: parsed,\n      extracted_at: new Date().toISOString(),\n    },\n    call: {\n      phone_number: call.phone_number || null,\n      started_at: call.started_at || null,\n      ended_at: call.ended_at || null,\n      duration_seconds: call.duration_seconds ?? null,\n      transcript: call.transcript,\n    },\n  },\n};\n"
+      },
+      "id": "61b08f54-8220-4d72-bf01-1cb1fc37e348",
+      "name": "Validate and Normalize Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-valid",
+              "leftValue": "={{ $json.extraction.is_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2f7cf836-737a-463b-8f04-843f522cfc65",
+      "name": "Lead Data Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1200,
+        48
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "10a46cc8-e958-4118-ba51-9be7f64aec82",
+      "name": "Lead Ready for Storage",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "phone_e164",
+              "name": "phone_keys.e164",
+              "type": "string",
+              "value": "={{ $json.lead.phone }}"
+            },
+            {
+              "id": "phone_digits",
+              "name": "phone_keys.digits",
+              "type": "string",
+              "value": "={{ String($json.lead.phone || \"\").replace(/\\D/g, \"\") }}"
+            },
+            {
+              "id": "phone_local",
+              "name": "phone_keys.local10",
+              "type": "string",
+              "value": "={{ String($json.lead.phone || \"\").replace(/\\D/g, \"\").slice(-10) }}"
+            },
+            {
+              "id": "phone_zero",
+              "name": "phone_keys.zero_prefixed",
+              "type": "string",
+              "value": "={{ \"0\" + String($json.lead.phone || \"\").replace(/\\D/g, \"\").slice(-10) }}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "0f308a55-3483-40c8-90a1-e68afc85ff9c",
+      "name": "Build Phone Match Keys",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1280,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "leads",
+        "limit": 10,
+        "orderBy": "id",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $json.phone_keys.e164 }}"
+            },
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $json.phone_keys.digits }}"
+            },
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $json.phone_keys.local10 }}"
+            },
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $json.phone_keys.zero_prefixed }}"
+            }
+          ]
+        }
+      },
+      "id": "b1e6057a-1398-479c-86bf-3e5d178abe45",
+      "name": "Find Existing Lead",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1504,
+        752
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "DXI6vyc7QdGM362P",
+          "name": "Supabase account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "errorMessage": "=Database step failed for call_id {{ $(\"Lead Ready for Storage\").first().json.call_id }}: {{ $json[\"error\"]?.message ?? $json[\"error\"] ?? \"unknown Supabase error\" }}"
+      },
+      "id": "0405a8b5-1e97-4308-beb6-e81919272fb2",
+      "name": "Database Sync Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3072,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst ctx = $('Lead Ready for Storage').first().json;\nconst lead = ctx.lead;\nconst isEmpty = (v) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');\n\n// Rows returned by the lookup (an empty result arrives as one empty item)\nconst rows = $input.all()\n  .map((i) => i.json)\n  .filter((r) => r && r.id !== undefined && r.id !== null)\n  .sort((a, b) => Number(a.id) - Number(b.id));\n\nconst warnings = [...(ctx.extraction.warnings || [])];\nconst FILLABLE = ['name', 'budget', 'preferred_location', 'property_type'];\nlet action;\nlet reason = null;\nlet existing = null;\nconst patch = {};\nlet newRow = null;\n\nif (rows.length > 0) {\n  existing = rows[0];\n  if (rows.length > 1) {\n    warnings.push(rows.length + ' existing leads share this phone (ids ' + rows.map((r) => r.id).join(', ') + '); using oldest id ' + existing.id);\n  }\n  for (const f of FILLABLE) {\n    if (isEmpty(existing[f]) && !isEmpty(lead[f])) patch[f] = lead[f];\n  }\n  action = Object.keys(patch).length > 0 ? 'update_existing' : 'existing_unchanged';\n} else if (!isEmpty(lead.name) && !isEmpty(lead.phone)) {\n  action = 'create_new';\n  newRow = { name: lead.name, phone: lead.phone };\n  if (!isEmpty(lead.budget)) newRow.budget = lead.budget;\n  if (!isEmpty(lead.preferred_location)) newRow.preferred_location = lead.preferred_location;\n  if (!isEmpty(lead.property_type)) newRow.property_type = lead.property_type;\n} else {\n  action = 'not_created';\n  reason = isEmpty(lead.name)\n    ? 'Customer name was not provided in the call and no existing lead matches phone ' + lead.phone + '; a lead requires a real name, so none was created'\n    : 'No valid phone number available; a lead requires a phone number';\n}\n\nreturn [{\n  json: {\n    call_id: ctx.call_id,\n    action,\n    reason,\n    existing_lead_id: existing ? existing.id : null,\n    existing_lead: existing,\n    patch,\n    new_row: newRow,\n    lead,\n    extraction: ctx.extraction,\n    call: ctx.call,\n    warnings,\n  },\n}];\n"
+      },
+      "id": "43e2c9c9-a24e-46db-a257-906998864b14",
+      "name": "Decide Lead Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "update_existing",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Fill empty fields"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "existing_unchanged",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Existing, nothing to fill"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "create_new",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Create new lead"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "not_created",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Lead not created"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d622a889-ee65-43b4-b0af-79c54b4d009b",
+      "name": "Route Lead Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1952,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify($json.patch) }}",
+        "options": {}
+      },
+      "id": "1e152be8-964d-4003-9d45-2c5319041387",
+      "name": "Build Empty-Field Patch",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2176,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "leads",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $(\"Decide Lead Action\").first().json.existing_lead_id }}"
+            }
+          ]
+        },
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "073a87dc-753e-473d-a957-acc362ce87b7",
+      "name": "Fill Empty Lead Fields",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        256
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "supabaseApi": {
+          "id": "DXI6vyc7QdGM362P",
+          "name": "Supabase account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "call_id",
+              "name": "call_id",
+              "type": "string",
+              "value": "={{ $(\"Decide Lead Action\").first().json.call_id }}"
+            },
+            {
+              "id": "lead_id",
+              "name": "lead_id",
+              "type": "number",
+              "value": "={{ $(\"Decide Lead Action\").first().json.existing_lead_id ?? $json[\"id\"] }}"
+            },
+            {
+              "id": "lead_action",
+              "name": "lead_action",
+              "type": "string",
+              "value": "={{ $(\"Decide Lead Action\").first().json.action }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "300e8d4a-e58b-4c35-a850-44994bc37f5f",
+      "name": "Resolve Lead ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2624,
+        144
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify($json.new_row) }}",
+        "options": {}
+      },
+      "id": "0593f61f-9ee4-4324-a00e-adae02aa1c8e",
+      "name": "Build New Lead Row",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2176,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "leads",
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "7a4cd644-cfcc-4f68-86b4-5672b15ddbd4",
+      "name": "Create New Lead",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        608
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "DXI6vyc7QdGM362P",
+          "name": "Supabase account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "outcome",
+              "name": "outcome",
+              "type": "string",
+              "value": "lead_not_created"
+            },
+            {
+              "id": "call_id",
+              "name": "call_id",
+              "type": "string",
+              "value": "={{ $json.call_id }}"
+            },
+            {
+              "id": "lead_id",
+              "name": "lead_id",
+              "type": "string",
+              "value": "={{ null }}"
+            },
+            {
+              "id": "reason",
+              "name": "reason",
+              "type": "string",
+              "value": "={{ $json.reason }}"
+            },
+            {
+              "id": "call_lead_id_changed",
+              "name": "call_lead_id_changed",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "lead",
+              "name": "extracted_lead",
+              "type": "object",
+              "value": "={{ $json.lead }}"
+            },
+            {
+              "id": "extraction",
+              "name": "extraction",
+              "type": "object",
+              "value": "={{ $json.extraction }}"
+            },
+            {
+              "id": "call",
+              "name": "call",
+              "type": "object",
+              "value": "={{ $json.call }}"
+            },
+            {
+              "id": "warnings",
+              "name": "warnings",
+              "type": "array",
+              "value": "={{ $json.warnings }}"
+            }
+          ]
+        },
+        "options": {
+          "ignoreConversionErrors": true
+        }
+      },
+      "id": "f1ee8161-1e83-46b7-9639-3b851b4670f0",
+      "name": "Lead Not Created",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2176,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "calls",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "call_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.call_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "lead_id",
+              "fieldValue": "={{ $json.lead_id }}"
+            }
+          ]
+        }
+      },
+      "id": "b69c6d70-f47f-4f0d-b456-1f79c4f509a8",
+      "name": "Link Lead to Call",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2848,
+        144
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "DXI6vyc7QdGM362P",
+          "name": "Supabase account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "call-row-found",
+              "leftValue": "={{ $json[\"call_id\"] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b8351f46-ef7c-483b-88a5-2b2bdba34cee",
+      "name": "Call Row Updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3072,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "outcome",
+              "name": "outcome",
+              "type": "string",
+              "value": "lead_saved_and_linked"
+            },
+            {
+              "id": "call_id",
+              "name": "call_id",
+              "type": "string",
+              "value": "={{ $(\"Resolve Lead ID\").first().json.call_id }}"
+            },
+            {
+              "id": "lead_id",
+              "name": "lead_id",
+              "type": "number",
+              "value": "={{ $(\"Resolve Lead ID\").first().json.lead_id }}"
+            },
+            {
+              "id": "lead_action",
+              "name": "lead_action",
+              "type": "string",
+              "value": "={{ $(\"Resolve Lead ID\").first().json.lead_action }}"
+            },
+            {
+              "id": "fields_filled",
+              "name": "fields_filled",
+              "type": "array",
+              "value": "={{ Object.keys($(\"Decide Lead Action\").first().json.patch) }}"
+            },
+            {
+              "id": "lead",
+              "name": "lead",
+              "type": "object",
+              "value": "={{ $(\"Decide Lead Action\").first().json.lead }}"
+            },
+            {
+              "id": "warnings",
+              "name": "warnings",
+              "type": "array",
+              "value": "={{ $(\"Decide Lead Action\").first().json.warnings }}"
+            },
+            {
+              "id": "future",
+              "name": "next_step",
+              "type": "string",
+              "value": "FUTURE INTEGRATION — NOT CONFIGURED: WhatsApp follow-up"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aac81829-b149-4504-9924-0d8e636fb376",
+      "name": "Lead Saved and Linked",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        3296,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "=Lead {{ $(\"Resolve Lead ID\").first().json.lead_id }} was saved, but no calls row matched call_id {{ $(\"Resolve Lead ID\").first().json.call_id }}, so calls.lead_id was not set"
+      },
+      "id": "d14b9b34-9f3f-4df4-9f92-f39cd20894b1",
+      "name": "Call Row Not Found",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3296,
+        192
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Call Ended Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Call Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Call Data": {
+      "main": [
+        [
+          {
+            "node": "Has Call ID and Transcript?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Call ID and Transcript?": {
+      "main": [
+        [
+          {
+            "node": "Respond Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Accepted": {
+      "main": [
+        [
+          {
+            "node": "Extract Lead Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Lead Info": {
+      "main": [
+        [
+          {
+            "node": "Validate and Normalize Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lead Extraction Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Normalize Lead": {
+      "main": [
+        [
+          {
+            "node": "Lead Data Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Data Valid?": {
+      "main": [
+        [
+          {
+            "node": "Lead Ready for Storage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lead Extraction Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Ready for Storage": {
+      "main": [
+        [
+          {
+            "node": "Build Phone Match Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Phone Match Keys": {
+      "main": [
+        [
+          {
+            "node": "Find Existing Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Lead": {
+      "main": [
+        [
+          {
+            "node": "Decide Lead Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Database Sync Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Lead Action": {
+      "main": [
+        [
+          {
+            "node": "Route Lead Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Lead Action": {
+      "main": [
+        [
+          {
+            "node": "Build Empty-Field Patch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolve Lead ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build New Lead Row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lead Not Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Empty-Field Patch": {
+      "main": [
+        [
+          {
+            "node": "Fill Empty Lead Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fill Empty Lead Fields": {
+      "main": [
+        [
+          {
+            "node": "Resolve Lead ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Database Sync Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Lead ID": {
+      "main": [
+        [
+          {
+            "node": "Link Lead to Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build New Lead Row": {
+      "main": [
+        [
+          {
+            "node": "Create New Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create New Lead": {
+      "main": [
+        [
+          {
+            "node": "Resolve Lead ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Database Sync Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link Lead to Call": {
+      "main": [
+        [
+          {
+            "node": "Call Row Updated?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Database Sync Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Row Updated?": {
+      "main": [
+        [
+          {
+            "node": "Lead Saved and Linked",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Row Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "cf10eb68-f8c6-4bed-94c9-7e6f09f29063",
+  "meta": {
+    "instanceId": "01396cfb0d0ae342db7a9791a6df67a7c4339f1f059da1c6e382f364cfe4ee79"
+  },
+  "nodeGroups": [
+    {
+      "id": "234620fe-2eb4-430e-aca6-4c08f3eb10c9",
+      "name": "Receive completed call",
+      "nodeIds": [
+        "c1c4a373-b095-4211-a80d-818d7df959d1",
+        "7b1445f6-4f4f-4a65-8173-df0e57d48166",
+        "17bb6ae9-90f3-4bda-b819-0e6caddeb6fe",
+        "4527f13e-7ae8-4657-bb63-0829549b8f17"
+      ],
+      "description": "Takes the post-call payload from the backend, keeps call ID and transcript, and rejects incomplete calls"
+    },
+    {
+      "id": "72359c5c-c612-41c5-8e8e-8ca21299a326",
+      "name": "Extract lead details",
+      "nodeIds": [
+        "b29d4e90-089c-4cfe-89ca-91156fd54a63",
+        "61b08f54-8220-4d72-bf01-1cb1fc37e348",
+        "2f7cf836-737a-463b-8f04-843f522cfc65",
+        "10a46cc8-e958-4118-ba51-9be7f64aec82",
+        "5a4e8049-93f2-4e0c-8804-01a8b4edefcd"
+      ],
+      "description": "AI reads only the transcript, missing fields become null, phone and budget are normalized; bad output stops the run"
+    },
+    {
+      "id": "576f06ed-0577-41c4-bc29-761507d4ebc5",
+      "name": "Save lead and link call",
+      "nodeIds": [
+        "0f308a55-3483-40c8-90a1-e68afc85ff9c",
+        "b1e6057a-1398-479c-86bf-3e5d178abe45",
+        "43e2c9c9-a24e-46db-a257-906998864b14",
+        "d622a889-ee65-43b4-b0af-79c54b4d009b",
+        "1e152be8-964d-4003-9d45-2c5319041387",
+        "073a87dc-753e-473d-a957-acc362ce87b7",
+        "0593f61f-9ee4-4324-a00e-adae02aa1c8e",
+        "7a4cd644-cfcc-4f68-86b4-5672b15ddbd4",
+        "300e8d4a-e58b-4c35-a850-44994bc37f5f",
+        "b69c6d70-f47f-4f0d-b456-1f79c4f509a8",
+        "b8351f46-ef7c-483b-88a5-2b2bdba34cee",
+        "aac81829-b149-4504-9924-0d8e636fb376",
+        "d14b9b34-9f3f-4df4-9f92-f39cd20894b1",
+        "f1ee8161-1e83-46b7-9639-3b851b4670f0",
+        "0405a8b5-1e97-4308-beb6-e81919272fb2"
+      ],
+      "description": "Matches by phone, fills only empty fields or creates a lead (never without a real name), then links it to the call"
+    }
+  ],
+  "id": "nN8E2396ScJwpQpp",
+  "tags": []
+}
