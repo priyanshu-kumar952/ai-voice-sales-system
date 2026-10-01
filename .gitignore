@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases / runtime files
+*.db
+*.sqlite
+*.sqlite3
+
+# Node / n8n local files if added later
+node_modules/
+
+# Temporary files
+tmp/
+temp/
